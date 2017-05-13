@@ -1,0 +1,22 @@
+PrintCapture configuration:
+
+Menu: Setup->Configuration...
+
+Configuration window:
+
+Serial Port tab:
+Port: <your Arduino COM port>
+Baud Rate: 115200
+Word Size: 8
+Parity: None
+Stop Bits: 1
+
+Image Processing tab:
+Auto Trim: checked
+Keep Raw Data: checked
+Resolution: 194 DPI*
+Print Processing 100%; Portrait
+
+
+* With a resoution of 194 DPI the one centimeter graticule squares are printed as one centimeter.
+
