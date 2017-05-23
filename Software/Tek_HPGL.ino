@@ -1,10 +1,9 @@
-/*
- ****************************************************************************************|
+/*****************************************************************************************|
  * Tektronix 2232 Digital Storage Oscilloscope analog X-Y pen ploter to HP-GL 
  * translator. (Hewlett-Packard Graphics Language http://en.wikipedia.org/wiki/HPGL)
  * 
  * John Horstman
- * 3/19/2017 Rev H
+ * 5/22/2017 Rev I
  * 
  * This sketch continuously reads the X and Y analog pen plotter voltages, and the 
  * pen up/down signal, and packages the ADC values in successive HP-GL commands. The 
@@ -42,15 +41,14 @@
  * 1. Two (2) precision, unity-gain differential amplifiers (wired as summing amps) 
  *    to translate the ±2.5V analog X and Y voltages into 0 to 5V for the Arduino analog 
  *    pins.
- * 2. A 'charge pump' voltage converter to convert 9VDC to ±9VDC to power the amplifiers.
+ * 2. A 'charge pump' voltage converter to convert Vin to ±Vin to power the amplifiers.
  * 3. A precision 2.50V voltage reference to the amplifiers for the voltage translation.
  * 4. A precision 5.00V voltage reference to the Arduino AREF pin.
- * 5. A voltage divider network so the 9V Vin can be reduced to 5V for the Arduino
- *    analog pin. A schottky diode protects the pin if a higher voltage power supply
- *    is used.
+ * 5. A voltage divider network so the Vin can be reduced for the Arduino analog pin. 
+ *    A schottky diode protects the pin if a greater than 9V power supply is used.
  * 6. A bi-color red/green LED as a Go/No Go indicator that the 9V power supply
  *    is connected, or not. This sketch will stay in the setup() routine until a 
- *    9VDC, or greater, power supply is plugged in to the Arduino. These IC's 
+ *    6.5VDC, or greater, power supply is plugged in to the Arduino. These IC's 
  *    cannot run accurately on the USB ~5V power!
  * 7. A slide switch to start the data stream and stop it when the plot is completed.
  * 8. A pair of capacitors to filter the DAC dithering of the plotter X-Y voltage signals.
@@ -61,15 +59,14 @@
  * Slide switch to OFF.
  * Connect Arduino via DB-9 connector to oscilloscope plotter port. 
  * Connect Arduino USB to PC. Arduino powers up, LED is red.
- * Connect 9VDC power to Arduino. LED is green.
+ * Connect power supply (6.5 to 20V) to Arduino. LED is green.
  * Launch listening application, like TeraTerm or PrintCapture. Ensure your application 
  *  is set to the Arduino COM port 6, 115200, 8, none, 1.
  * Slide switch to ON. (data stream commences)
  * Immediately press PLOT key on scope.
  * When scope plot completes immediately slide switch to OFF. (data stream halts)
  * Reset Arduino in order to start the next plot.
- ****************************************************************************************|
-*/
+ *****************************************************************************************/
 //#define __serial_plotter // uncomment to calibrate with Arduino Serial Plotter tool
 //#define __dummy_data // uncomment to use dummy data for testing
 
@@ -122,23 +119,25 @@ void setup() {
 
   // Set LEDs
   digitalWrite(IdleLED, HIGH); // Turn on 'idle' LED
-  digitalWrite(LEDRedPin, LOW); // Turn red/green LED off
+  digitalWrite(LEDRedPin, HIGH); // Turn red LED on
   digitalWrite(LEDGreenPin, LOW);
   
-  // initialize serial communication:
+  // Initialize serial communication:
   Serial.begin(115200);
 
-  // Check for 9V Vin external power, stay in setup() until 9V supply connected
-  /*
-   * Why 900 counts? To gaurantee that a 7.5±5%VDC power pack will not trigger the 
-   * 'Go' signal under maximal conditions:
-   * 7.5v+5%; R1Ω-1%; R2Ω+1%; USB 5v-5% (AREF); +3 counts (2 LSB ADC error)
-   */
-  while (analogRead(VinVoltage) < 900) {
+  // Delay here for battery voltage to drop when LED is on
+  delay(500);
+
+  /* Check for external power, stay in setup() until >6.5V supply connected
+  * 6.5V external supply is 6.3V Vin (due to diode drop on Arduino UNO board)
+  * 6.3V is the absolute minimum supply for the op-amps, U2 & U3, and the 5V voltage reference, U5
+  * 6.3V through the resisitor divider network, R1 & R2, is 3.3V
+  * 3.3V, with 5V AREF, is 675 ADC counts (3.3 / 5 * 1023) */
+  while (analogRead(VinVoltage) < 675) {
     digitalWrite(LEDRedPin, HIGH); // Turn LED red (no-go)
     digitalWrite(LEDGreenPin, LOW);
     delay(100);
-  } // Wait here until user plugs in a 9VDC, or greater, power supply
+  } // Wait here until user plugs in a 6.5VDC, or greater, power supply
    
   // Vin OK, continue
   digitalWrite(LEDRedPin, LOW); // Turn LED green (go)
