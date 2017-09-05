@@ -49,8 +49,14 @@ privacy, or moral rights may limit how you use the material.
 
  2. Software:
 
-The Analog-XY-Plotter-Output-to-HPGL-Translator software is released under the 
-MIT License(http://opensource.org/licenses/MIT).
+The Analog-XY-Plotter-Output-to-HPGL-Translator Software and 
+associated documentation files (the "Software") is released under the 
+MIT License(http://opensource.org/licenses/MIT). The firmware in the 
+Arduino UNO® microcontroller board, and any firmware which the Arduino 
+Integrated Development Environment downloads to the Arduino UNO®  
+microcontroller board (other than the compiled Software), both of which form a 
+part of the Analog-XY-Plotter-Output-to-HPGL-Translator, is not subject to this 
+license.
 
 The MIT License (MIT)
 
