@@ -44,9 +44,9 @@
  * This sketch is for Arduino UNO with Proto Shield. The Proto Shield contains signal 
  * conditioning circuitry comprised of;
  * 1. Two (2) precision, unity-gain differential amplifiers (wired as summing amps) 
- *    to translate the Â±2.5V analog X and Y voltages into 0 to 5V for the Arduino analog 
+ *    to translate the ±2.5V analog X and Y voltages into 0 to 5V for the Arduino analog 
  *    pins.
- * 2. A 'charge pump' voltage converter to convert Vin to Â±Vin to power the amplifiers.
+ * 2. A 'charge pump' voltage converter to convert Vin to ±Vin to power the amplifiers.
  * 3. A precision 2.50V voltage reference to the amplifiers for the voltage translation.
  * 4. A precision 5.00V voltage reference to the Arduino AREF pin.
  * 5. A voltage divider network so the Vin can be reduced for the Arduino analog pin. 
