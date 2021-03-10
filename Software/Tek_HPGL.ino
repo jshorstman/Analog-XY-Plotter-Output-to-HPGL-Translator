@@ -3,9 +3,9 @@
  * translator. (Hewlett-Packard Graphics Language http://en.wikipedia.org/wiki/HPGL)
  * 
  * John Horstman
- * 2/23/2021 Revision J
+ * 3/9/2021 Revision K
  */
- const String REVISION = "J"; // Current revision
+ const String REVISION = "K"; // Current revision
  /* 
  * This sketch continuously reads the X and Y analog pen plotter voltages, and the 
  * pen up/down signal, digitizes them and packages the ADC values in successive HP-GL 
@@ -13,30 +13,29 @@
  * application like PrintCapture or SPLOT.
  *  
  * The HP-GL commands used in this sketch are:
- * CO;  Comment
+ * CO;  Comment (HP-GL/2 command)
  * IN;  Initialize
- * PS:  Plot size
+ * PS:  Plot size (HP-GL/2 command)
  * IP;  Input P1 & P2
  * SC;  Scale
  * SP;  Select pen
- * PW;  Pen width
+ * PW;  Pen width (HP-GL/2 command)
  * PU;  Pen UP
  * PD;  Pen DOWN
  * PA;  Plot Absolute
  * 
- * Example HPGL output of this sketch:
+ * Example HP-GL output of this sketch (with a few HP-GL/2 commands):
+ * CO "Analog X-Y Pen Plotter to HP-GL Translator";
+ * CO "Revision K";
  * IN;
  * PS8900,7350;
  * IP0,0,7350,7350;
  * SC0,1023,0,1023,1;
  * PW0.5,1;
- * PU;
  * SP1;
- * PA77,984;
- * ...          // data points up to every 1.6 milliseconds
- * PD;
- * PA53,92;
- * ...
+ * PU77,984;PD;  // move pen to initial point and put down pen
+ * PA77,984;     // plot point
+ * ...           // data points up to every 1.6 milliseconds only while pen is down
  * PU;
  * SP;
  * IN;
@@ -116,12 +115,15 @@
 #define LEDGreenPin 10 // Digital pin 10
 #define LEDRedPin 11   // Digital pin 11
 #define PenInputPin 12 // Digital pin 12
-#define IdleLED 13     // Digital pin 13
+#define IdleLED LED_BUILTIN // Digital pin 13
 #define X_voltage 0    // Analog pin A0
 #define Y_voltage 1    // Analog pin A1
 #define VinVoltage 2   // Analog pin A2
+// The logic levels
+#define DOWN LOW
+#define UP HIGH
 // The numbers
-unsigned int PenState = HIGH;             // Default pen up
+unsigned int PenState = UP;               // Default pen up
 unsigned int OldPenState = PenState;      //
 const unsigned int numReadings = 8;       // Must be a power of two so we can right shift later
 unsigned int Xreadings[numReadings];      // Arrays for computing moving average for smoothing
@@ -133,6 +135,7 @@ unsigned int Ycoor = Ytotal;              //
 unsigned int oldXcoor = Xcoor;            //
 unsigned int oldYcoor = Ycoor;            //
 boolean changeFlag = false;               // Set when new XY coordinate differs from previous
+boolean PenStateChangeToDown = false;     // Pen state change flag when pen first transitions to down from up
 unsigned int readIndex = 0;               // Array index
 const unsigned int dcXOffset = 20; //20;  // Compensate for any DC offset. Adjust this to get approximately 511,511.
 const unsigned int dcYOffset = 22; //22;  //
@@ -158,6 +161,13 @@ void setup() {
   pinMode(LEDGreenPin, OUTPUT);
   pinMode(SwitchPin, INPUT_PULLUP);
   pinMode(PenInputPin, INPUT_PULLUP); // Pen signal is from Normally Open (N.O.) relay contacts
+
+  /* For analog input pins, the digital input buffer should be disabled at all times.
+   * Atmel-42735B-ATmega328/P_Datasheet_Complete-11/2016 p66
+   * 
+   * Data Input Disable Register 0
+   * ADC1D and ADC0D set to 1.  p326 */
+  DIDR0 |= 0x03;
   
   analogReference(DEFAULT);
 
@@ -167,6 +177,7 @@ void setup() {
   digitalWrite(LEDGreenPin, LOW);
   
   // Initialize serial communication:
+  /* High baud rate because Serial.println() is in an ISR */
   Serial.begin(115200);
   
   // Initialize Loop timer
@@ -222,16 +233,13 @@ void setup() {
   digitalWrite(IdleLED, LOW); // turn off 'idle' LED, transmission will commence (TX LED will light)
 
   // HP-GL/2 plot header commands
-  Serial.println("CO \"Analog X-Y Pen Plotter to HP-GL Translator\";");
+  Serial.println("CO \"Analog X-Y Pen Plotter to HP-GL Translator\";"); // (HP-GL/2 command)
   Serial.println("CO \"Revision " + REVISION + "\";");
   Serial.println("IN;"); // Initialize
-  Serial.println("PS8900,7350;"); // Plot size; A-size
+  Serial.println("PS8900,7350;"); // Plot size; A-size (HP-GL/2 command)
   Serial.println("IP0,0,7350,7350;"); // Input Scaling Points P1 & P2; A-size drawing (8.5" x 11", less margins)
   Serial.println("SC0,1023,0,1023,1;"); // Scale; Isotropic
-  Serial.println("PW0.5,1;"); // Pen 1 width, 0.5mm
-  //Serial.println("OH;"); // Output hard clip limits
-  //Serial.println("OP;"); // Output P1 & P2
-  Serial.println("PU;"); // Pen Up
+  Serial.println("PW0.5,1;"); // Pen 1 width, 0.5mm (HP-GL/2 command)
   Serial.println("SP1;"); // Select Pen 1, Black
   
   Timer1.attachInterrupt(Process); // ISR
@@ -259,41 +267,48 @@ void loop() {
   }
 } // end loop
 
-void Process(){
+/*
+ * The Process ***************************************************************************|
+*/ 
+// This ISR takes up to 990 microseconds to complete with Serial.println()
+void Process(){ 
+  // rising edge of timing test pulse.
+  PORTB |= B1; // digitalWrite(TestPin, HIGH)
+  
   /* Read X, Y and Pen signals as close together as possible and compute a moving 
    * average for smoothing */
   Xtotal -= Xreadings[readIndex]; // Subtract an old value from the total
   Ytotal -= Yreadings[readIndex]; //
   
   PenState = digitalRead(PenInputPin); // Read pen input; returns HIGH or LOW
-  Xreadings[readIndex] = analogRead(X_voltage) - dcXOffset; // compensate for dc offset
-  delayMicroseconds(16); // Delay two ADC clock cycles (there is less 'jitter' on the Y readings than for a one ADC clock cycle delay, don't ask me why)
+  Xreadings[readIndex] = analogRead(X_voltage); // no delay between readings
   Yreadings[readIndex] = analogRead(Y_voltage) - dcYOffset;
+  Xreadings[readIndex] -= dcXOffset; // compensate for dc offset here
   
   Xtotal += Xreadings[readIndex];   // Add the new value to the total
   Ytotal += Yreadings[readIndex++]; // Increment readIndex here
   readIndex %= numReadings;  // Wrap around readIndex here
 
-  Xcoor = Xtotal >> 3; // Divide by 8
+  Xcoor = Xtotal >> 3; // Divide by 8 (numReadings)
   Ycoor = Ytotal >> 3;
   // End read X, Y and pen
   
-  /* If pen has changed state then output pen command
-   * Pen UP signal is HIGH (relay open, internal pull up resistor), pen DOWN is LOW 
-   * (relay closed to ground) */   
-  if (PenState != OldPenState) {
-    (PenState == HIGH) ? (CmdStr = "PU;") : (CmdStr = "PD;");
-    OldPenState = PenState; // Remember pen state
-    Serial.println(CmdStr);
-  }
-
   #ifdef __dummy_data
    // dummy data for now, plot a circle 
     float t = (float)millis() / 1000.0;
     float arg = TWO_PI_F * t;
     Xcoor = int(511.5*cos(arg)+511.5);
     Ycoor = int(511.5*sin(arg)+511.5);
+    PenState = DOWN;
   #endif
+
+  /* If pen has changed state then set state change flag
+   * Pen UP signal is HIGH (relay open, internal pull up resistor), pen DOWN is LOW 
+   * (relay closed to ground) */   
+  if (PenState != OldPenState) {
+    (PenState == DOWN) ? (PenStateChangeToDown = true) : (PenStateChangeToDown = false);    
+    OldPenState = PenState; // Remember pen state
+  }
 
   /* Determine if the new Xtotal and Ytotal are different from the old values. If so, 
    * output the new plot point. */
@@ -312,15 +327,26 @@ void Process(){
   if (changeFlag) {
 #ifdef __serial_plotter
     int Pen;
-    (PenState == HIGH) ? Pen = 10 : Pen = 0;  // View the Pen up/down signal
+    (PenState == UP) ? Pen = 10 : Pen = 0;  // View the Pen up/down signal
     CmdStr = "1023 0 " + ADCXStr + " " + ADCYStr + " " + Pen; // 1023 0 prevents autoscaling 
+    { // to match closing brace below
 #else
+    /* When the pen transitions to down from up, output the PU command to move the pen
+     * to the new location, then output the PD command. */
+    if (PenStateChangeToDown)  {  // pen has just gone down 
+      // We can afford only one extra Serial.println here so as not to violate our ISR timing.
+      Serial.println("PU" + ADCXStr + "," + ADCYStr + ";" + "PD;");
+      PenStateChangeToDown = false; // do this only once for every pen down transition
+    }
+
+    if (PenState == DOWN) {  // plot only when pen down
     CmdStr = "PA" + ADCXStr + "," + ADCYStr + ";";
 #endif
     Serial.println(CmdStr);
     changeFlag = false;
-  }
+    }
   
-  // Short (0.25Âµs) output pulse to test loop timing.
-  PORTB |= B1; PORTB ^= B1; // digitalWrite(TestPin, HIGH); digitalWrite(TestPin, LOW);
+  // falling edge of timing test pulse.
+  PORTB ^= B1; // digitalWrite(TestPin, LOW);
+  }
 }
