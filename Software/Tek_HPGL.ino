@@ -3,9 +3,9 @@
  * translator. (Hewlett-Packard Graphics Language http://en.wikipedia.org/wiki/HPGL)
  * 
  * John Horstman
- * 3/9/2021 Revision K
+ * 3/10/2021 Revision L
  */
- const String REVISION = "K"; // Current revision
+ const String REVISION = "L"; // Current revision
  /* 
  * This sketch continuously reads the X and Y analog pen plotter voltages, and the 
  * pen up/down signal, digitizes them and packages the ADC values in successive HP-GL 
@@ -270,7 +270,7 @@ void loop() {
 /*
  * The Process ***************************************************************************|
 */ 
-// This ISR takes up to 990 microseconds to complete with Serial.println()
+// This ISR takes up to 720 microseconds to complete with Serial.println()
 void Process(){ 
   // rising edge of timing test pulse.
   PORTB |= B1; // digitalWrite(TestPin, HIGH)
@@ -293,14 +293,14 @@ void Process(){
   Ycoor = Ytotal >> 3;
   // End read X, Y and pen
   
-  #ifdef __dummy_data
-   // dummy data for now, plot a circle 
-    float t = (float)millis() / 1000.0;
-    float arg = TWO_PI_F * t;
-    Xcoor = int(511.5*cos(arg)+511.5);
-    Ycoor = int(511.5*sin(arg)+511.5);
-    PenState = DOWN;
-  #endif
+#ifdef __dummy_data
+  // dummy data for now, plot a circle 
+  float t = (float)millis() / 1000.0;
+  float arg = TWO_PI_F * t;
+  Xcoor = int(511.5*cos(arg)+511.5);
+  Ycoor = int(511.5*sin(arg)+511.5);
+  PenState = DOWN;
+#endif
 
   /* If pen has changed state then set state change flag
    * Pen UP signal is HIGH (relay open, internal pull up resistor), pen DOWN is LOW 
@@ -311,7 +311,7 @@ void Process(){
   }
 
   /* Determine if the new Xtotal and Ytotal are different from the old values. If so, 
-   * output the new plot point. */
+   * output the new plot point (set changeFlag). */
   if (Xcoor != oldXcoor) {
     ADCXStr = Xcoor;
     oldXcoor = Xcoor;
@@ -329,24 +329,23 @@ void Process(){
     int Pen;
     (PenState == UP) ? Pen = 10 : Pen = 0;  // View the Pen up/down signal
     CmdStr = "1023 0 " + ADCXStr + " " + ADCYStr + " " + Pen; // 1023 0 prevents autoscaling 
-    { // to match closing brace below
 #else
     /* When the pen transitions to down from up, output the PU command to move the pen
      * to the new location, then output the PD command. */
     if (PenStateChangeToDown)  {  // pen has just gone down 
-      // We can afford only one extra Serial.println here so as not to violate our ISR timing.
-      Serial.println("PU" + ADCXStr + "," + ADCYStr + ";" + "PD;");
+      CmdStr = "PU" + ADCXStr + "," + ADCYStr + ";" + "PD;";
       PenStateChangeToDown = false; // do this only once for every pen down transition
-    }
-
-    if (PenState == DOWN) {  // plot only when pen down
-    CmdStr = "PA" + ADCXStr + "," + ADCYStr + ";";
+    } else {  // else it's a bona fide plot command
+	    CmdStr = "PA" + ADCXStr + "," + ADCYStr + ";";
+  	}
 #endif
-    Serial.println(CmdStr);
-    changeFlag = false;
+    if (PenState == DOWN) {  // plot only when pen down
+      // We can afford only one Serial.println so as not to violate our ISR timing.
+      Serial.println(CmdStr);
+      changeFlag = false;  // don't plot again until the coordinate(s) change
     }
+  }
   
   // falling edge of timing test pulse.
   PORTB ^= B1; // digitalWrite(TestPin, LOW);
-  }
-}
+} // end process
